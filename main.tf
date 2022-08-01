@@ -1,18 +1,3 @@
-#----------------------------------------------------------
-# My Terraform
-#
-# Variables
-#
-# Made by Denis Astahov
-#----------------------------------------------------------
-
-
-
-provider "aws" {
-  region = var.region
-}
-
-
 data "aws_ami" "latest_amazon_linux" {
   owners      = ["amazon"]
   most_recent = true
@@ -22,46 +7,34 @@ data "aws_ami" "latest_amazon_linux" {
   }
 }
 
-
-resource "aws_eip" "my_static_ip" {
-  instance = aws_instance.my_server.id
-  //tags     = var.common_tags
-  tags = merge(var.common_tags, { Name = "${var.common_tags["Environment"]} Server IP" })
-
-  /*
-  tags = {
-    Name    = "Server IP"
-    Owner   = "Denis Astahov"
-    Project = "Phoenix"
-  }
-*/
-
-}
-
-
-
-resource "aws_instance" "my_server" {
+resource "aws_instance" "web" {
   ami                    = data.aws_ami.latest_amazon_linux.id
-  instance_type          = var.instance_type
-  vpc_security_group_ids = [aws_security_group.my_server.id]
-  monitoring             = var.enable_detailed_monitoring
+  instance_type          = var.server_size
+  vpc_security_group_ids = [aws_security_group.web.id]
+  user_data              = <<EOF
+#!/bin/bash
+yum -y update
+yum -y install httpd
+myip=`curl http://169.254.169.254/latest/meta-data/local-ipv4`
+echo "<h2>${var.server_name}-WebServer with IP: $myip</h2><br>Build by Terraform!"  >  /var/www/html/index.html
+sudo service httpd start
+chkconfig httpd on
+EOF
 
-  tags = merge(var.common_tags, { Name = "${var.common_tags["Environment"]} Server Build by Terraform" })
-
+  tags = {
+    Name  = "${var.server_name}-WebServer"
+    Owner = "Denis Astahov"
+  }
 }
 
+resource "aws_security_group" "web" {
+  name_prefix = "${var.server_name}-WebServer-SG"
 
-resource "aws_security_group" "my_server" {
-  name = "My Security Group"
-
-  dynamic "ingress" {
-    for_each = var.allow_ports
-    content {
-      from_port   = ingress.value
-      to_port     = ingress.value
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-    }
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
     from_port   = 0
@@ -70,6 +43,16 @@ resource "aws_security_group" "my_server" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(var.common_tags, { Name = "${var.common_tags["Environment"]} Server SecurityGroup" })
+  tags = {
+    Name  = "${var.server_name}-WebServer SecurityGroup"
+    Owner = "Denis Astahov"
+  }
+}
 
+resource "aws_eip" "web" {
+  instance = aws_instance.web.id
+  tags = {
+    Name  = "${var.server_name}-WebServer-IP"
+    Owner = "Denis Astahov"
+  }
 }
